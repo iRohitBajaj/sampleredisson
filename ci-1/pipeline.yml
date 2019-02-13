@@ -1,0 +1,245 @@
+---
+resources:
+  - name: version
+    type: semver
+    source:
+      initial_version: "1.0.0"
+      driver: s3
+      endpoint: ((s3-endpoint))
+      bucket: ((s3-release-bucket))
+      access_key_id: ((s3-access-key-id))
+      secret_access_key: ((s3-secret-access-key))
+      key: version/((application-name))
+
+  - name: source 
+    type: git
+    source:
+      uri: ((git-repo-url))
+      branch: ((git-release-branch))
+      private_key: ((git-private-key))
+
+  - name: gh-release
+    type: github-release
+    source:
+      user: ((github-username))
+      repository: ((github-repository))
+      access_token: ((github-access-token))
+
+  - name: release-candidate 
+    type: s3
+    source:
+      endpoint: ((s3-endpoint))
+      bucket: ((s3-release-bucket))
+      access_key_id: ((s3-access-key-id))
+      secret_access_key: ((s3-secret-access-key))
+      regexp: rc/((application-name))-(.*).tgz
+
+  - name: release-final
+    type: s3
+    source:
+      endpoint: ((s3-endpoint))
+      bucket: ((s3-release-bucket))
+      access_key_id: ((s3-access-key-id))
+      secret_access_key: ((s3-secret-access-key))
+      regexp: final/((application-name))-(.*).tgz
+
+  - name: pcf-dev
+    type: cf
+    source:
+      api: ((cf-dev-api))
+      organization: ((cf-dev-org))
+      space: ((cf-dev-space))
+      username: ((cf-dev-username))
+      password: ((cf-dev-password))
+      skip_cert_check: false
+
+  - name: pcf-prod
+    type: cf
+    source:
+      api: ((cf-prod-api))
+      organization: ((cf-prod-org))
+      space: ((cf-prod-space))
+      username: ((cf-prod-username))
+      password: ((cf-prod-password))
+      skip_cert_check: false
+
+  - name: pcf-pipeline-image
+    type: docker-image
+    source:
+      repository: pivotalservices/docker-concourse-cf-tools
+      tag: latest
+
+jobs:
+  - name: create-services-dev
+    plan:
+    - aggregate:
+      - get: pcf-pipeline-image
+      - get: source
+        trigger: true
+    - task: create-services
+      image: pcf-pipeline-image
+      config:
+        platform: linux
+        inputs:
+          - name: source
+        run:
+          path: source/ci-1/tasks/create-services.sh
+      params:
+        service_env: dev
+        api: ((cf-dev-api))
+        organization: ((cf-dev-org))
+        space: ((cf-dev-space))
+        username: ((cf-dev-username))
+        password: ((cf-dev-password))
+
+  - name: create-rc
+    serial_groups: [version]
+    plan:
+    - aggregate:
+      - get: source
+        trigger: true
+        passed: [create-services-dev]
+      - get: version
+        params: {pre: rev}
+
+    - task: build
+      file: source/ci/tasks/build.yml
+      params:
+        MVN_PARAMS: "-Pdev"
+    
+    - task: package-release
+      file: source/ci-1/tasks/package-release.yml
+      params:
+        ARTIFACT_NAME: ((application-name))
+
+    - aggregate:
+      - put: version
+        params: {pre: rev}
+      - put: release-candidate 
+        params:
+          file: tarball/*.tgz
+
+  - name: deploy-dev
+    serial_groups: [version]
+    plan:
+    - aggregate:
+      - get: release
+        resource: release-candidate
+        passed: [create-rc]
+        params:
+          unpack: true
+      - get: source # To enable usage of this resource in shipit "passed" condition
+        trigger: true
+        passed: [create-rc]
+    - put: pcf-dev
+      params:
+        manifest: release/manifests/development.yml
+        path: release/application.jar
+        current_app_name: ((application-deployment-dev-prefix))((application-name))((application-deployment-suffix))
+        show_app_log: true
+
+  - name: shipit
+    serial_groups: [version]
+    plan:
+    - aggregate:
+      - get: release-candidate
+        passed: [deploy-dev]
+      - get: final-version
+        resource: version 
+        params: {bump: final}
+      - get: next-version
+        resource: version 
+        params: {bump: minor}
+      - get: source
+        trigger: true
+        passed: [deploy-dev]
+
+    - task: promote-release
+      file: source/ci-1/tasks/promote-release.yml
+      input_mapping:
+        version: final-version
+      params:
+        ARTIFACT_NAME: ((application-name))
+
+    - put: release-final
+      params:
+        file: final-release/*.tgz
+
+    - task: bump-pom-version
+      file: source/ci-1/tasks/bump-pom-version.yml
+      params:
+        RELEASE_BRANCH: ((git-release-branch))
+        FINAL_VERSION_SUFFIX: "" # Could be .RELEASE for example
+        NEXT_VERSION_SUFFIX: "-SNAPSHOT"
+
+    - put: gh-release
+      params:
+        name: final-version/version
+        tag: final-version/version
+        tag_prefix: v
+        globs:
+        - final-release/*.tgz
+
+    - put: version
+      params:
+        bump: minor
+
+  - name: deploy-prod
+    plan:
+    - aggregate:
+      - get: source
+        trigger: true
+      - get: release
+        passed: [shipit]
+        resource: release-final
+        params:
+          unpack: true
+    - put: pcf-prod
+      params:
+        manifest: release/manifests/prod.yml
+        path: release/application.jar
+        current_app_name: ((application-name))((application-deployment-suffix))
+        show_app_log: true
+        environment_variables:
+
+  - name: run-smoke-tests-prod
+    plan:
+    - aggregate:
+      - get: source
+        trigger: true
+        passed: [deploy-prod]
+    - task: run-smoke-tests-prod
+      image: pcf-pipeline-image
+      config:
+        platform: linux
+        run:
+          path: source/ci-1/tasks/run-tests-smoke.sh
+      params:
+        health_path: ((health-path))
+        test_url: ((smoke_test_url))
+        env: prod
+
+  - name: route-traffic-to-new-app-prod
+    plan:
+    - aggregate:
+      - get: source
+        trigger: true
+        passed: [run-smoke-tests-prod]
+    - task: reroute-apps-prod
+      image: pcf-pipeline-image
+      config:
+        platform: linux
+        inputs:
+          - name: source
+        run:
+          path: source/ci-1/tasks/reroute-apps.sh
+      params:
+        api: ((cf-dev-api))
+        organization: ((cf-dev-org))
+        space: ((cf-dev-space))
+        username: ((cf-dev-username))
+        password: ((cf-dev-password))
+        pcf_app_name: ((application-name))
+        pcf_app_name_new: ((application-name))((application-deployment-suffix))
+        pcf_app_name_old: ((application-name))-old
+        pcf_domain: ((cf_domain))
