@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: sampleredisson
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+
+---
+spring:
+  profiles: local
+  cloud:
+    config:
+      enabled: false

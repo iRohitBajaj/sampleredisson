@@ -1,0 +1,15 @@
+dev:
+  # list of required services
+  services:
+    - name: rabbit
+      type: broker
+      broker: cloudamqp
+      plan: lemur
+    - name: sample-redis
+      type: broker
+      broker: rediscloud
+      plan: 30mb
+    - name: mysql
+      type: broker
+      broker: cleardb
+      plan: spark

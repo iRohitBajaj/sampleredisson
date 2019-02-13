@@ -1,0 +1,26 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: openjdk
+    tag: 8-jdk
+
+inputs:
+  - name: version
+  - name: source
+
+outputs:
+  - name: unpacked-artifacts
+
+params:
+  MVN_PARAMS: ""
+
+caches:
+  - path: maven
+
+run:
+  path: /bin/bash
+  args:
+    - source/ci/tasks/build.sh

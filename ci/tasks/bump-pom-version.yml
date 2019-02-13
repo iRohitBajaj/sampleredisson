@@ -1,0 +1,28 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    # Any image with git installed will do but we already use this one
+    # thus it will be cached
+    repository: openjdk 
+    tag: 8-jdk
+
+inputs:
+  - name: final-version
+  - name: next-version
+  - name: source 
+
+outputs:
+  - name: updated-source
+
+params:
+  RELEASE_BRANCH: ""
+  FINAL_VERSION_SUFFIX: ""
+  NEXT_VERSION_SUFFIX: ""
+
+run:
+  path: /bin/bash
+  args:
+    - source/ci/tasks/bump-pom-version.sh

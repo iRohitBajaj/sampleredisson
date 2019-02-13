@@ -1,0 +1,14 @@
+spring:
+  redis:
+    redisson:
+      singleServerConfig:
+        connectionMinimumIdleSize: 16
+  autoconfigure:
+    exclude:
+      - org.redisson.spring.starter.RedissonAutoConfiguration
+
+greeting:
+  message2: Hello FiservAustin
+  message3: Hello USA
+  message4: Hello everyone
+

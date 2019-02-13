@@ -1,0 +1,11 @@
+applications:
+- name: sampleredisson
+  memory: 1G
+  instances: 1
+  services:
+    - sample-redis
+    - mysql
+    - config-server
+    - rabbit
+  env:
+      SPRING_PROFILES_ACTIVE: dev

@@ -1,0 +1,19 @@
+spring:
+  redis:
+    host: 192.168.99.100
+    port: 32769
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  autoconfigure:
+      exclude:
+          - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+
+greeting:
+  message1: Hello world
+  message2: Hello Fiserv
+  message3: Hello America
+  message4: Hello everybody
+  encryptedmessage: timbuktu

@@ -1,0 +1,25 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: busybox
+
+inputs:
+  - name: version
+  - name: release-candidate
+
+outputs:
+  - name: final-release
+
+params:
+  ARTIFACT_NAME: application
+
+run:
+  path: sh
+  args:
+    - -exc
+    - |
+      VERSION=$(cat version/version)
+      mv release-candidate/${ARTIFACT_NAME}-*.tgz "final-release/${ARTIFACT_NAME}-${VERSION}.tgz"
